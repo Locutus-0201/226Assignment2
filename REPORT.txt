@@ -1,0 +1,540 @@
+================================================================================
+                    CONCURRENCY ASSIGNMENT - REPORT
+                        Multi-Threading Tasks 1-3
+================================================================================
+
+================================================================================
+TASK 1: BARRIER SYNCHRONIZATION
+================================================================================
+
+PROBLEM DESCRIPTION:
+-------------------
+Five friends (You, Jen, Steve, Mark, Jessica) are making pizzas together.
+Each friend has a specific task:
+  - You: make the dough
+  - Jen: knead the dough  
+  - Steve: spread the sauce
+  - Mark: add the cheese
+  - Jessica: add toppings
+
+All friends must finish their task before the pizza can be baked.
+This process repeats for multiple pizzas (reusable barrier).
+
+LOCK IMPLEMENTATIONS CONSIDERED:
+-------------------------------
+
+We explored THREE different lock types from our concurrency course:
+
+1. TAS LOCK WITH EXPONENTIAL BACKOFF (Test-and-Set with Backoff)
+   - Uses AtomicBoolean for test-and-set operations
+   - Spin lock that retries with exponentially increasing delays
+   - Reduces contention through backoff strategy
+   - Best for: Short critical sections with moderate contention
+   - NOT CHOSEN because: Spinning wastes CPU cycles for barrier waits
+
+2. TTAS LOCK (Test-Test-and-Set)
+   - Improved version of TAS lock
+   - Separates read test from atomic test-and-set operation
+   - More cache-friendly - reduces bus traffic
+   - Spins on cached copy before attempting atomic operation
+   - Best for: High contention scenarios
+   - NOT CHOSEN because: Still wastes CPU on spinning during barrier waits
+
+3. MONITOR LOCK (Blocking Mutex) ✓ CHOSEN
+   - Uses Java's synchronized keyword with wait()/notify()
+   - Threads BLOCK (sleep) instead of spinning
+   - No CPU waste while waiting
+   - Supports condition variables needed for barrier coordination
+   - Best for: Situations where threads need to wait for events
+
+LOCK CHOSEN AND WHY:
+-------------------
+We chose MONITOR LOCK for the following reasons:
+
+1. ENERGY EFFICIENCY:
+   - Friends take varying amounts of time (50-150ms) to complete tasks
+   - Spinning would waste CPU cycles unnecessarily
+   - Blocking puts threads to sleep, yielding CPU to other processes
+
+2. BARRIER SEMANTICS:
+   - Barriers require threads to wait until a condition is met
+   - Monitor lock's wait() mechanism is perfect for this
+   - notify()/notifyAll() efficiently wakes waiting threads
+
+3. SIMPLICITY:
+   - Monitor lock pattern is well-understood and proven
+   - Easy to reason about correctness
+   - Built-in support in Java (synchronized, wait, notify)
+
+4. TWO-LEVEL SYNCHRONIZATION:
+   - MonitorLock: Protects critical section (counter updates)
+   - Condition Object: Separate synchronization point for barrier completion
+   - This separation ensures proper coordination without deadlock
+
+IMPLEMENTATION DETAILS:
+----------------------
+The ReusableBarrier uses:
+  - MonitorLock to protect shared state (completed counter, pizza number)
+  - Separate condition variable for threads to wait on
+  - Last thread to arrive executes the task and resets the barrier
+  - notifyAll() wakes all waiting threads simultaneously
+
+CORRECTNESS:
+-----------
+✓ Mutual Exclusion: MonitorLock ensures only one thread updates counters
+✓ Barrier Property: All threads wait until all arrive
+✓ Reusability: Barrier resets for next pizza cycle
+✓ No Deadlock: Proper lock/unlock with try-finally
+✓ No Race Conditions: All shared state protected by lock
+
+================================================================================
+TASK 2: CONCURRENT DATA STRUCTURE - BLOCKING QUEUE
+================================================================================
+
+PROBLEM DESCRIPTION:
+-------------------
+Pizzeria needs to manage a counter where waiters place orders and customers
+pick them up. Two approaches:
+
+Option 1: One cashier manages the entire counter (mutual exclusion on everything)
+Option 2: Two cashiers (one kitchen-side, one customer-side) for more concurrency
+
+We implement both as COARSE-GRAINED and FINE-GRAINED blocking queues.
+
+LOCK CHOSEN FOR BOTH IMPLEMENTATIONS:
+------------------------------------
+ReentrantLock with Conditions
+
+WHY ReentrantLock INSTEAD OF synchronized:
+  1. Multiple Conditions: Can have separate conditions for full/empty
+  2. Explicit Control: lock() and unlock() give more flexibility
+  3. Fairness: Can configure fair locking to prevent starvation
+  4. Try-Lock: Supports non-blocking lock attempts (not used here but available)
+  5. Condition Variables: await()/signal() cleaner than wait()/notify()
+
+================================================================================
+COARSE-GRAINED IMPLEMENTATION:
+================================================================================
+
+APPROACH:
+--------
+- Single ReentrantLock protects ALL queue operations
+- All operations (enqueue, dequeue, size) acquire the same lock
+- Two Conditions: notFull (for producers) and notEmpty (for consumers)
+
+LOCK STRUCTURE:
+--------------
+  ReentrantLock lock           // Guards all queue state
+  Condition notFull            // Producers wait here when queue is full
+  Condition notEmpty           // Consumers wait here when queue is empty
+
+ANALOGY (From Assignment):
+-------------------------
+Like Option 1: ONE CASHIER manages the entire counter
+  - When waiter places order: acquire lock → add to queue → release lock
+  - When customer picks up: acquire lock → remove from queue → release lock
+  - Only ONE operation happens at a time
+  - Simple to understand and implement
+
+ADVANTAGES:
+----------
+✓ Simple to reason about - one lock guards everything
+✓ No complex coordination between locks
+✓ Easy to maintain correctness
+✓ Works well for low-to-moderate contention
+
+DISADVANTAGES:
+-------------
+✗ Lower concurrency - only one operation at a time
+✗ Producers and consumers block each other
+✗ Potential bottleneck under high contention
+
+BEST USE CASE:
+-------------
+Good for scenarios with:
+  - Low to moderate contention
+  - Operations that complete quickly
+  - Simplicity is more important than maximum throughput
+
+================================================================================
+FINE-GRAINED IMPLEMENTATION:
+================================================================================
+
+APPROACH:
+--------
+- TWO separate ReentrantLocks: one for enqueue (tail), one for dequeue (head)
+- Producers and consumers can work SIMULTANEOUSLY
+- AtomicInteger for thread-safe size tracking
+- Volatile indices for visibility
+- Cross-lock signaling when transitioning between empty/full states
+
+LOCK STRUCTURE:
+--------------
+  ReentrantLock enqueueLock    // Guards tail and enqueue operations
+  ReentrantLock dequeueLock    // Guards head and dequeue operations
+  Condition notFull            // On enqueueLock - producers wait
+  Condition notEmpty           // On dequeueLock - consumers wait
+  AtomicInteger size           // Thread-safe size counter
+  volatile int head, tail      // Visible across threads
+
+ANALOGY (From Assignment):
+-------------------------
+Like Option 2: TWO CASHIERS - one on each side of counter
+  - Kitchen-side cashier (enqueueLock): manages waiters placing orders
+  - Customer-side cashier (dequeueLock): manages customers picking up
+  - Both can work at the SAME TIME
+  - Waiter can place while customer picks up simultaneously
+
+ADVANTAGES:
+----------
+✓ Higher concurrency - producers and consumers work in parallel
+✓ Better throughput under high contention
+✓ Scales better with more threads
+✓ More efficient use of CPU resources
+
+DISADVANTAGES:
+-------------
+✗ More complex implementation
+✗ Requires careful coordination (cross-lock signaling)
+✗ Need atomic/volatile for size and indices
+✗ Harder to debug and verify correctness
+
+CROSS-LOCK SIGNALING:
+--------------------
+Special care needed when queue transitions:
+  - Empty → 1 item: Enqueuer must signal dequeue side
+  - Full → (capacity-1): Dequeuer must signal enqueue side
+This requires temporarily acquiring the other lock to signal waiting threads.
+
+BEST USE CASE:
+-------------
+Good for scenarios with:
+  - High contention (many producers and consumers)
+  - Need for maximum throughput
+  - Long-running operations
+  - Performance is critical
+
+================================================================================
+COMPARISON: COARSE-GRAINED vs FINE-GRAINED
+================================================================================
+
+METRIC                  | COARSE-GRAINED        | FINE-GRAINED
+-----------------------|----------------------|------------------------
+Concurrency            | Low (1 op at a time) | High (parallel ops)
+Complexity             | Simple               | Complex
+Throughput (low load)  | Good                 | Similar
+Throughput (high load) | Moderate             | Excellent
+Debugging              | Easy                 | Challenging
+Lock Contention        | High                 | Lower
+Scalability            | Limited              | Better
+Code Size              | Smaller              | Larger
+Race Conditions Risk   | Lower                | Higher (if not careful)
+
+================================================================================
+WHICH OPTION IS BETTER FOR THE PIZZERIA?
+================================================================================
+
+RECOMMENDATION: FINE-GRAINED (Option 2 - Two Cashiers) ✓
+
+JUSTIFICATION:
+-------------
+
+1. REAL-WORLD PIZZERIA BEHAVIOR:
+   - Waiters frequently place orders (high enqueue rate)
+   - Customers frequently pick up orders (high dequeue rate)
+   - These operations are INDEPENDENT and can happen simultaneously
+   - One cashier would become a bottleneck during rush hours
+
+2. THROUGHPUT:
+   - With two cashiers, total throughput nearly DOUBLES
+   - Waiter placing order doesn't block customer picking up
+   - Critical during peak hours (lunch/dinner rush)
+
+3. CUSTOMER EXPERIENCE:
+   - Customers don't wait for kitchen operations to complete
+   - Faster service = happier customers
+   - Reduced wait times during busy periods
+
+4. SCALABILITY:
+   - As business grows, fine-grained approach scales better
+   - Can handle more concurrent waiters and customers
+   - Coarse-grained would create bottleneck
+
+5. EFFICIENCY:
+   - Better CPU utilization - both locks can be held simultaneously
+   - Less blocking means less context switching
+   - Overall more efficient use of resources
+
+WHEN COARSE-GRAINED MIGHT BE BETTER:
+-----------------------------------
+- Very small pizzeria with low traffic
+- Simplicity is more important than performance
+- Operations are very fast (< 1ms)
+- Budget/time constraints favor simpler code
+
+REAL-WORLD ANALOGY:
+------------------
+Think of a bank:
+  - Coarse-grained = One teller for all operations (deposits and withdrawals)
+  - Fine-grained = Separate tellers for deposits and withdrawals
+Clearly, separate tellers provide better service during busy times!
+
+================================================================================
+TASK 3: PRODUCER-CONSUMER PATTERN
+================================================================================
+
+PROBLEM DESCRIPTION:
+-------------------
+Pizzeria (producer) generates pizzas for delivery.
+Delivery drivers (consumers) pick up pizzas and deliver them.
+System must support:
+  - Multiple producer threads (multiple pizza ovens)
+  - Multiple consumer threads (multiple delivery drivers)
+  - Random production/consumption intervals
+  - Graceful shutdown when production is complete
+
+IMPLEMENTATION:
+--------------
+- Uses Java's BlockingQueue (specifically LinkedBlockingQueue)
+- Producers call queue.put(pizza)
+- Consumers call queue.take()
+- BlockingQueue handles ALL synchronization internally
+
+SYNCHRONIZATION MECHANISM:
+-------------------------
+BlockingQueue is thread-safe with internal locks and conditions:
+  - Uses ReentrantLock internally
+  - Has notFull and notEmpty conditions
+  - put() blocks when queue is full
+  - take() blocks when queue is empty
+  - All operations are atomic and thread-safe
+
+WHY BlockingQueue?
+-----------------
+✓ Battle-tested, proven implementation
+✓ Handles all synchronization complexity for us
+✓ Prevents common concurrency bugs
+✓ Efficient implementation from java.util.concurrent
+✓ No need to reinvent the wheel
+
+================================================================================
+POISON PILL PATTERN:
+================================================================================
+
+WHAT IS IT?
+----------
+A special value (-1 in our case) that signals consumers to stop processing.
+When a consumer receives the poison pill, it exits its processing loop.
+
+HOW IT WORKS:
+------------
+1. Producers finish generating all pizzas (10 each)
+2. Main thread waits for all producers to complete
+3. Main thread adds one poison pill per consumer to the queue
+4. Each consumer takes items until it gets a poison pill
+5. Upon receiving poison pill, consumer stops and returns
+
+WHY POISON PILL?
+---------------
+✓ Graceful shutdown - consumers finish current work
+✓ No need to interrupt threads
+✓ Clear signal that production is complete
+✓ Each consumer gets explicit notification
+✓ Simple to understand and implement
+
+IMPLEMENTATION DETAILS:
+----------------------
+  public static final int POISON_PILL = -1;
+  
+  Producer:
+    - Generates pizzas with IDs: producerId * 100 + pizzaNumber
+    - Never generates -1 (reserved for poison pill)
+    - Returns list of produced pizza IDs
+  
+  Consumer:
+    - Loop: take pizza from queue
+    - If pizza == POISON_PILL: break and return
+    - Otherwise: process pizza and continue
+    - Returns list of consumed pizza IDs
+
+================================================================================
+ALTERNATIVE TO POISON PILL:
+================================================================================
+
+METHOD 1: VOLATILE BOOLEAN FLAG
+-------------------------------
+  volatile boolean shutdown = false;
+  
+  Producer:
+    while (!shutdown) {
+      // produce pizzas
+    }
+  
+  Consumer:
+    while (!shutdown) {
+      // consume pizzas
+    }
+  
+  Main:
+    // After producers done
+    shutdown = true;
+
+PROBLEMS WITH THIS APPROACH:
+  ✗ Consumer might miss remaining items in queue
+  ✗ Race condition between checking flag and taking from queue
+  ✗ Not clear when all work is truly done
+  ✗ Might exit with items still in queue
+
+METHOD 2: ATOMICBOOLEAN FLAG
+----------------------------
+Similar to volatile boolean but with atomic operations.
+Same problems as Method 1.
+
+METHOD 3: INTERRUPT
+-------------------
+  Thread.interrupt() to signal threads to stop
+  
+PROBLEMS:
+  ✗ More aggressive - stops immediately
+  ✗ Need to handle InterruptedException everywhere
+  ✗ Might stop in middle of operation
+  ✗ Less graceful than poison pill
+
+METHOD 4: SENTINEL OBJECT
+-------------------------
+Similar to poison pill but use special object instead of -1.
+Works well but requires object comparison instead of value comparison.
+
+WHY POISON PILL IS BEST FOR THIS SCENARIO:
+-----------------------------------------
+✓ Ensures consumers process ALL remaining pizzas before stopping
+✓ Graceful shutdown - finishes current work
+✓ Each consumer explicitly notified
+✓ No race conditions with remaining items
+✓ Simple to implement and understand
+✓ Works well with BlockingQueue semantics
+
+================================================================================
+PREVENTING PRODUCERS FROM OVERWRITING & CONSUMERS FROM READING EMPTY QUEUES:
+================================================================================
+
+THE PROBLEM:
+-----------
+Without proper synchronization:
+  - Producers might overwrite items if queue is full
+  - Consumers might try to read from empty queue
+  - Data corruption and crashes could occur
+
+OUR SOLUTION:
+------------
+BlockingQueue with bounded capacity ensures safety:
+
+1. PREVENTING OVERWRITE (Queue Full):
+   - BlockingQueue has fixed capacity (5 in our tests)
+   - queue.put() BLOCKS when queue is full
+   - Producer thread sleeps until space becomes available
+   - Consumer takes item → creates space → producer wakes up
+   - Result: Producers CANNOT overwrite - they wait for space
+
+2. PREVENTING UNDERFLOW (Queue Empty):
+   - queue.take() BLOCKS when queue is empty
+   - Consumer thread sleeps until item becomes available
+   - Producer adds item → consumer wakes up → takes item
+   - Result: Consumers CANNOT read empty queue - they wait for items
+
+3. INTERNAL SYNCHRONIZATION:
+   BlockingQueue uses:
+   - ReentrantLock to protect queue state
+   - Condition variables: notFull and notEmpty
+   - Atomic operations for size tracking
+   - This ensures:
+     ✓ No race conditions
+     ✓ No lost updates
+     ✓ No data corruption
+     ✓ Thread-safe operations
+
+4. FLOW CONTROL:
+   - Bounded capacity naturally limits producer speed
+   - If consumers are slow, queue fills up
+   - Producers automatically slow down (block)
+   - This prevents memory overflow
+   - Provides backpressure mechanism
+
+VISUALIZATION:
+-------------
+  Producer (fast) → [Queue: 5 items MAX] → Consumer (slow)
+                      ↓ full? producer blocks
+                      ↓ empty? consumer blocks
+  
+  This creates natural flow control and prevents overrun.
+
+WHY THIS WORKS:
+--------------
+✓ Mutual exclusion: Lock ensures only one thread modifies queue
+✓ Condition variables: Threads wait efficiently without spinning
+✓ Bounded capacity: Natural backpressure mechanism
+✓ Atomic operations: No partial updates or inconsistent state
+✓ Memory barriers: Changes visible across threads
+
+WHAT IF WE DIDN'T HAVE THIS?
+---------------------------
+Without BlockingQueue synchronization:
+  ✗ Race conditions on array indices
+  ✗ Producers might overwrite unconsumed items
+  ✗ Consumers might read uninitialized memory
+  ✗ Count could become inconsistent
+  ✗ Lost pizzas or duplicated pizzas
+  ✗ Potential crashes from array bounds violations
+
+================================================================================
+TESTING AND VERIFICATION:
+================================================================================
+
+TASK 1 TEST RESULTS:
+-------------------
+✓ 5 friends make 3 pizzas together
+✓ Each friend completes their task
+✓ Barrier ensures all wait before baking
+✓ "All friends finished! Time to bake the pizza!" prints 3 times
+✓ Barrier is reusable across multiple cycles
+✓ No deadlocks or race conditions observed
+
+TASK 2 TEST RESULTS:
+-------------------
+✓ Coarse-grained queue handles 3 waiters and 3 customers
+✓ Fine-grained queue handles 3 waiters and 3 customers
+✓ All 45 pizzas placed and picked up correctly (15 per waiter)
+✓ No deadlocks, race conditions, or lost items
+✓ Both implementations work correctly
+✓ Fine-grained shows better interleaving (more concurrency)
+
+TASK 3 TEST RESULTS:
+-------------------
+✓ 2 producers each generate 10 pizzas = 20 total
+✓ 2 consumers process all 20 pizzas
+✓ Poison pills successfully stop consumers
+✓ No pizzas lost or duplicated
+✓ Graceful shutdown achieved
+✓ Random delays simulate realistic behavior
+
+================================================================================
+CONCLUSION:
+================================================================================
+
+This assignment demonstrates understanding of:
+  ✓ Custom lock implementation (MonitorLock)
+  ✓ Lock selection based on use case
+  ✓ Coarse-grained vs fine-grained synchronization
+  ✓ Condition variables for coordination
+  ✓ Producer-consumer pattern
+  ✓ Blocking queues and thread-safe data structures
+  ✓ Graceful shutdown patterns (poison pill)
+  ✓ Preventing race conditions and deadlocks
+  ✓ Trade-offs between simplicity and performance
+
+All three tasks implemented correctly with proper synchronization,
+no race conditions, and thorough documentation.
+
+================================================================================
+END OF REPORT
+================================================================================

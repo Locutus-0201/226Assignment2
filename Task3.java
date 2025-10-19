@@ -2,6 +2,38 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Task3 {
+    /*
+     * TASK 3: PRODUCER-CONSUMER PATTERN
+     * ==================================
+     * 
+     * SCENARIO: Pizzeria (producer) generates pizzas, delivery drivers (consumers) deliver them
+     * 
+     * SYNCHRONIZATION MECHANISM:
+     * - Uses Java's BlockingQueue (LinkedBlockingQueue) for thread-safe communication
+     * - BlockingQueue handles all synchronization internally:
+     *   * put() blocks when queue is full
+     *   * take() blocks when queue is empty
+     * - No explicit locks needed - BlockingQueue is already thread-safe
+     * 
+     * POISON PILL PATTERN:
+     * - Special value (-1) signals consumers to stop
+     * - Ensures graceful shutdown without interrupting threads
+     * - Each consumer gets one poison pill to terminate
+     * 
+     * ALTERNATIVE TO POISON PILL:
+     * Could use a volatile boolean flag or AtomicBoolean:
+     *   - volatile boolean shutdown = false;
+     *   - Consumers check flag in loop: while (!shutdown)
+     *   - Producer sets flag when done: shutdown = true;
+     * - Poison pill is clearer and ensures each consumer sees the signal
+     * 
+     * PREVENTING OVERWRITE/UNDERFLOW:
+     * - BlockingQueue capacity limits prevent producers from overwhelming consumers
+     * - put() blocks when full (producers can't overwrite)
+     * - take() blocks when empty (consumers can't read empty queue)
+     * - Internal ReentrantLock and Conditions ensure mutual exclusion
+     */
+    
     public static final int POISON_PILL = -1;
 
     static class Producer implements Callable<List<Integer>> {

@@ -1,8 +1,31 @@
 import java.util.concurrent.locks.*;
-import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Task2 {
+    /*
+     * TASK 2: CONCURRENT DATA STRUCTURE - BLOCKING QUEUE IMPLEMENTATIONS
+     * ===================================================================
+     * 
+     * Two implementations of thread-safe bounded blocking queues:
+     * 
+     * 1. COARSE-GRAINED LOCKING:
+     *    - Single ReentrantLock protects all operations
+     *    - Simple to reason about - one lock guards everything
+     *    - Lower concurrency: only ONE operation at a time
+     *    - Uses two Conditions: notFull (producers wait), notEmpty (consumers wait)
+     * 
+     * 2. FINE-GRAINED LOCKING:
+     *    - Separate locks: enqueueLock (tail) and dequeueLock (head)
+     *    - Higher concurrency: producers and consumers can work simultaneously
+     *    - More complex: requires AtomicInteger for size, cross-lock signaling
+     *    - Uses volatile indices and careful coordination between locks
+     * 
+     * LOCK CHOICES:
+     * - ReentrantLock: Provides explicit lock()/unlock() and Condition variables
+     * - Better than synchronized: supports multiple conditions, fairer, more flexible
+     * - Conditions (await/signal): Block threads efficiently when queue is full/empty
+     */
+    
     public interface MyBlockingQueue<T> {
         void enqueue(T item) throws InterruptedException;
         T dequeue() throws InterruptedException;
@@ -15,9 +38,11 @@ public class Task2 {
         private int head = 0, tail = 0, count = 0;
 
         //add any lock and conditions here
+        // COARSE-GRAINED: Single lock guards all queue state
+        // Analogy: One cashier manages the entire counter (Option 1 from assignment)
         private final ReentrantLock lock = new ReentrantLock();
-        private final Condition notFull = lock.newCondition();
-        private final Condition notEmpty = lock.newCondition();
+        private final Condition notFull = lock.newCondition();   // Waiters wait here when counter is full
+        private final Condition notEmpty = lock.newCondition();  // Customers wait here when counter is empty
 
         public CoarseGrainedBlockingQueue(int capacity) {
             if (capacity <= 0) throw new IllegalArgumentException("capacity must be > 0");
@@ -71,14 +96,16 @@ public class Task2 {
 
     public static class FineGrainedBlockingQueue<T> implements MyBlockingQueue<T> {
         private final Object[] queue;
-        private volatile int head = 0, tail = 0; 
-        private final AtomicInteger size = new AtomicInteger(0);
+        private volatile int head = 0, tail = 0;  // Volatile for visibility across threads
+        private final AtomicInteger size = new AtomicInteger(0);  // Atomic for thread-safe size tracking
 
         //add any lock and conditions here
-        private final ReentrantLock enqueueLock = new ReentrantLock();
-        private final ReentrantLock dequeueLock = new ReentrantLock();
-        private final Condition notFull = enqueueLock.newCondition();
-        private final Condition notEmpty = dequeueLock.newCondition();
+        // FINE-GRAINED: Separate locks for each end of the queue
+        // Analogy: Two cashiers - one for kitchen side (enqueue), one for customer side (dequeue) (Option 2)
+        private final ReentrantLock enqueueLock = new ReentrantLock();  // Protects tail operations
+        private final ReentrantLock dequeueLock = new ReentrantLock();  // Protects head operations
+        private final Condition notFull = enqueueLock.newCondition();   // Waiters wait on enqueue lock
+        private final Condition notEmpty = dequeueLock.newCondition();  // Customers wait on dequeue lock
         
         public FineGrainedBlockingQueue(int capacity) {
             if (capacity <= 0) throw new IllegalArgumentException("capacity must be > 0");
