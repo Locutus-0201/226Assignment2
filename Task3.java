@@ -14,7 +14,21 @@ public class Task3 {
         }
 
         public List<Integer> call() throws Exception {
-            //TODO: Implement function - produce pizzas
+            List<Integer> produced = new ArrayList<>();
+            Random random = new Random();
+            
+            // Produce 10 pizzas
+            for (int i = 0; i < 10; i++) {
+                int pizzaId = id * 100 + i; // Unique pizza ID based on producer ID
+                queue.put(pizzaId);
+                produced.add(pizzaId);
+                System.out.println("Producer " + id + " produced pizza: " + pizzaId);
+                
+                // Sleep for random interval (0-100ms)
+                Thread.sleep(random.nextInt(100));
+            }
+            
+            return produced;
         }
     }
 
@@ -28,7 +42,26 @@ public class Task3 {
         }
 
         public List<Integer> call() throws Exception {
-            //TODO: Implement function - collect pizza
+            List<Integer> consumed = new ArrayList<>();
+            Random random = new Random();
+            
+            while (true) {
+                int pizzaId = queue.take();
+                
+                // Check for poison pill
+                if (pizzaId == POISON_PILL) {
+                    System.out.println("Consumer " + id + " received poison pill. Stopping.");
+                    break;
+                }
+                
+                consumed.add(pizzaId);
+                System.out.println("Consumer " + id + " consumed pizza: " + pizzaId);
+                
+                // Sleep for random interval (0-100ms)
+                Thread.sleep(random.nextInt(100));
+            }
+            
+            return consumed;
         }
     }
 }
