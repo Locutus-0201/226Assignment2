@@ -1,0 +1,51 @@
+Task1: Barrier Synchronization.
+
+Initially used TTAS but swapped to Monitor Lock to simplify cpu usage. Instead of spinning constantly with TTAS and then rushes to do TAS we can block with monitor locks that use a series of waits and notifications, overall less traffic in the system.
+
+In this system we have many friends taking certain amounts of time to make a pizza, we also already needed to use await() which is generally attributed to conditions of monitor locks, it makes sense to implement a system that waits till something has happened rather than constantly using resources.
+
+Task2: Concurrent Data Structure
+
+Coarse vs Fine grained
+Decided to use the Reentrant lock with conditions
+We needed Mutex lock and conditions here. 
+Coarse-grained your concurrency would be low and you would have a high lock contention with limited scalability. In theory here we would lock the whole system up each time we make an order or deliver as we have to lock the entire “queue” each time.
+
+Fine-Grained your concurrency is much higher you would support lower lock contention and have better scalability, in fine-grained we can lock less of the system up each time , only locking per table for example compared to how coarse would lock up the entire store to doo something.
+
+This all means in the fine-grained system we could potentially have more waiters and cashiers with fewer issues and they can work harder with less issues..
+
+Thus fine grained is a much better option:
+We would high order placing rates and frequent output of pizzas so we can assume our output(throughput will always be high) and you have the downside of customer satisfaction so you need to yield results quickly and efficiently and fine-grained supports that more.
+
+
+Task3: Producer-Consumer
+
+Sentinel object could work nicely
+We would use a dummy object that tells the system to stop and check for said sentinel.
+This would also guarantee a uniquer object makes the change for us
+
+
+while (true) {
+    Integer pizzaId = queue.take();
+                
+    // Check if it's THE sentinel object (same memory address)
+        if (pizzaId == SENTINEL) {
+            break;
+        }
+                
+        consumed.add(pizzaId);
+        }
+            
+        return consumed;
+        }
+    }
+}
+
+How do we prevent the empty queue issue?
+BlockingQueue with bounded capacity.
+
+This would help us to prevent overwriting with producer threads having to wait for space so we wait for consumer to take basically.
+
+And functions like take() for consumer are blocked if the queue is empty with the consumer waiting till something is in the queue to take.
+

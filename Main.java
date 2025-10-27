@@ -161,7 +161,7 @@ public class Main {
             totalProduced += produced.size();
         }
         
-        System.out.println("\nAll producers finished. Total pizzas produced: " + totalProduced);
+        System.out.println("Producers finished: " + totalProduced + " pizzas made");
         
         // Send poison pills to consumers
         for (int i = 0; i < numConsumers; i++) {
@@ -175,11 +175,9 @@ public class Main {
             totalConsumed += consumed.size();
         }
         
-        System.out.println("All consumers finished. Total pizzas consumed: " + totalConsumed);
+        System.out.println("Consumers finished: " + totalConsumed + " pizzas delivered");
         
         executor.shutdown();
         executor.awaitTermination(5, TimeUnit.SECONDS);
-        
-        System.out.println("\nTask 3 completed successfully!");
     }
 }

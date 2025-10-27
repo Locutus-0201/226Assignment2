@@ -17,11 +17,10 @@ public class Task3 {
             List<Integer> produced = new ArrayList<>();
             Random random = new Random();
             
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 5; i++) {
                 int pizzaId = id * 100 + i;
                 queue.put(pizzaId);
                 produced.add(pizzaId);
-                System.out.println("Producer " + id + " produced pizza: " + pizzaId);
                 Thread.sleep(random.nextInt(100));
             }
             
@@ -46,12 +45,10 @@ public class Task3 {
                 int pizzaId = queue.take();
                 
                 if (pizzaId == POISON_PILL) {
-                    System.out.println("Consumer " + id + " received poison pill. Stopping.");
                     break;
                 }
                 
                 consumed.add(pizzaId);
-                System.out.println("Consumer " + id + " consumed pizza: " + pizzaId);
                 Thread.sleep(random.nextInt(100));
             }
             
